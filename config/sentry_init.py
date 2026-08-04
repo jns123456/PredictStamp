@@ -226,6 +226,48 @@ def _is_transient_postgres_oom(event, hint) -> bool:
     return False
 
 
+def _is_celery_beat_redis_scheduling_noise(event, hint) -> bool:
+    """Drop transient Redis broker drops when Celery beat publishes the schedule."""
+    redis_markers = (
+        "unexpected_eof",
+        "unexpected eof",
+        "connection reset",
+        "error 8 connecting",
+        "channel disconnected",
+        "eof occurred in violation of protocol",
+    )
+    transient_types = {
+        "SchedulingError",
+        "ConnectionError",
+        "OperationalError",
+        "SSLError",
+        "SSLEOFError",
+        "RecoverableConnectionError",
+    }
+
+    exc_info = hint.get("exc_info")
+    if exc_info and exc_info[0] is not None:
+        exc_name = getattr(exc_info[0], "__name__", "")
+        exc_msg = str(exc_info[1] or "").lower()
+        if exc_name == "SchedulingError" and "couldn't apply scheduled task" in exc_msg:
+            if any(marker in exc_msg for marker in redis_markers):
+                return True
+
+    has_scheduling_error = False
+    has_redis_transient = False
+    for entry in event.get("exception", {}).get("values", []):
+        entry_type = entry.get("type", "")
+        value = (entry.get("value") or "").lower()
+        if entry_type == "SchedulingError" and "couldn't apply scheduled task" in value:
+            has_scheduling_error = True
+            if any(marker in value for marker in redis_markers):
+                return True
+        if entry_type in transient_types and any(marker in value for marker in redis_markers):
+            has_redis_transient = True
+
+    return has_scheduling_error and has_redis_transient
+
+
 def _is_handled_stale_refresh_postgres_oom(event, hint) -> bool:
     """Drop handled PostgreSQL OOM during stale market refresh batch/task."""
     logger_name = event.get("logger")
@@ -286,6 +328,9 @@ def _before_send(event, hint):
         return None
 
     if _is_handled_stale_refresh_postgres_oom(event, hint):
+        return None
+
+    if _is_celery_beat_redis_scheduling_noise(event, hint):
         return None
 
     return event

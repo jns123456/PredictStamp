@@ -356,6 +356,57 @@ class SentryBeforeSendTests(SimpleTestCase):
         }
         self.assertIsNone(_before_send(event, {}))
 
+    def test_drops_celery_beat_redis_scheduling_error(self):
+        class SchedulingError(Exception):
+            pass
+
+        SchedulingError.__module__ = "celery.beat"
+        message = (
+            "Couldn't apply scheduled task refresh-stale-open-markets: "
+            "Error 8 connecting to ec2-100-58-75-76.compute-1.amazonaws.com:16990. "
+            "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol."
+        )
+        event = {
+            "exception": {
+                "values": [
+                    {
+                        "type": "SchedulingError",
+                        "value": message,
+                        "stacktrace": {
+                            "frames": [
+                                {"module": "celery.app.amqp", "function": "send_task_message"},
+                            ],
+                        },
+                    },
+                    {
+                        "type": "SSLEOFError",
+                        "value": "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol.",
+                    },
+                ],
+            },
+        }
+        hint = {"exc_info": (SchedulingError, SchedulingError(message), None)}
+        self.assertIsNone(_before_send(event, hint))
+
+    def test_keeps_celery_beat_scheduling_errors_without_redis_markers(self):
+        class SchedulingError(Exception):
+            pass
+
+        SchedulingError.__module__ = "celery.beat"
+        message = "Couldn't apply scheduled task demo-task: invalid task name"
+        event = {
+            "exception": {
+                "values": [
+                    {
+                        "type": "SchedulingError",
+                        "value": message,
+                    },
+                ],
+            },
+        }
+        hint = {"exc_info": (SchedulingError, SchedulingError(message), None)}
+        self.assertIs(event, _before_send(event, hint))
+
     def test_keeps_embedded_sync_non_db_errors(self):
         event = {
             "logger": "integrations.market_sync_scheduler",
