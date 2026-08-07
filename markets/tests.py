@@ -472,6 +472,24 @@ class MarketDetailTransientDbTests(SimpleTestCase):
         self.assertIs(get_market_for_detail("test-slug"), market)
         self.assertEqual(qs.first.call_count, 2)
 
+    @patch("markets.selectors._market_card_queryset")
+    def test_get_market_for_detail_retries_connection_timeout(self, mock_card_qs):
+        from unittest.mock import MagicMock
+
+        from django.db import OperationalError
+
+        from markets.selectors import get_market_for_detail
+
+        market = MagicMock()
+        qs = MagicMock()
+        qs.first.side_effect = [
+            OperationalError("connection timeout expired"),
+            market,
+        ]
+        mock_card_qs.return_value = qs
+        self.assertIs(get_market_for_detail("test-slug"), market)
+        self.assertEqual(qs.first.call_count, 2)
+
 
 class MarketListPaginationTransientDbTests(SimpleTestCase):
     @patch("markets.pagination.list")

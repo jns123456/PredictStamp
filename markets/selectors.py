@@ -63,6 +63,7 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "connection reset",
     "closed unexpectedly",
     "server closed",
+    "timeout",
 )
 
 

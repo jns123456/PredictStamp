@@ -12,7 +12,13 @@ from rest_framework.utils.urls import replace_query_param
 
 from markets.models import Market
 
-_TRANSIENT_DB_ERROR_MARKERS = ("ssl", "eof", "connection reset", "closed unexpectedly")
+_TRANSIENT_DB_ERROR_MARKERS = (
+    "ssl",
+    "eof",
+    "connection reset",
+    "closed unexpectedly",
+    "timeout",
+)
 
 
 def resolve_markets_list_status(request) -> tuple[str | None, str]:
