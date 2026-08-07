@@ -658,7 +658,14 @@ def get_landing_tape_markets(*, limit=LANDING_TAPE_DEFAULT_LIMIT, pool_size=LAND
             ).exclude(card_image_url="")
         )
     ).order_by("-volume_total", "-created_at")
-    pool = list(qs[:pool_size])
+    try:
+        pool = list(qs[:pool_size])
+    except OperationalError as exc:
+        message = str(exc).lower()
+        if not any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+            raise
+        close_old_connections()
+        pool = list(qs[:pool_size])
     if not pool:
         return []
     if len(pool) <= limit:

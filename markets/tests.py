@@ -493,6 +493,37 @@ class MarketListPaginationTransientDbTests(SimpleTestCase):
         self.assertEqual(mock_list.call_count, 2)
 
 
+class LandingTapeTransientDbTests(SimpleTestCase):
+    @patch("markets.selectors._public_market_filter")
+    @patch("markets.selectors._market_card_queryset")
+    def test_get_landing_tape_markets_retries_transient_connection_drop(
+        self, mock_card_qs, mock_public_filter
+    ):
+        from unittest.mock import MagicMock
+
+        from django.db import OperationalError
+
+        from markets.selectors import get_landing_tape_markets
+
+        market = MagicMock()
+        qs = MagicMock()
+        qs.__getitem__.side_effect = [
+            OperationalError(
+                'connection failed: connection to server at "18.209.250.183", port 5432 '
+                "failed: server closed the connection unexpectedly"
+            ),
+            [market],
+        ]
+        mock_card_qs.return_value = qs
+        mock_public_filter.return_value = qs
+        qs.order_by.return_value = qs
+
+        results = get_landing_tape_markets(limit=10, pool_size=1)
+
+        self.assertEqual(results, [market])
+        self.assertEqual(qs.__getitem__.call_count, 2)
+
+
 class LandingTapeSelectorTests(TestCase):
     def _forecastable_market(self, *, slug, title, image_url=""):
         return Market.objects.create(
