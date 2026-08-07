@@ -450,6 +450,29 @@ class MarketApiTests(TestCase):
         )
 
 
+class MarketDetailTransientDbTests(SimpleTestCase):
+    @patch("markets.selectors._market_card_queryset")
+    def test_get_market_for_detail_retries_transient_connection_drop(self, mock_card_qs):
+        from unittest.mock import MagicMock
+
+        from django.db import OperationalError
+
+        from markets.selectors import get_market_for_detail
+
+        market = MagicMock()
+        qs = MagicMock()
+        qs.first.side_effect = [
+            OperationalError(
+                'connection failed: connection to server at "18.209.250.183", port 5432 '
+                "failed: server closed the connection unexpectedly"
+            ),
+            market,
+        ]
+        mock_card_qs.return_value = qs
+        self.assertIs(get_market_for_detail("test-slug"), market)
+        self.assertEqual(qs.first.call_count, 2)
+
+
 class MarketListPaginationTransientDbTests(SimpleTestCase):
     @patch("markets.pagination.list")
     def test_windowed_pagination_retries_transient_ssl_eof(self, mock_list):

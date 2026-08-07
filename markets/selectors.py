@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 
 from datetime import datetime, timezone as dt_timezone
 
-from django.db import connection
+from django.db import OperationalError, close_old_connections, connection
 from django.db.models import Count, DateTimeField, F, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -57,6 +57,13 @@ MARKET_CARD_DEFER_FIELDS = (
     "polymarket_raw",
     "polymarket_event_raw",
 )
+_TRANSIENT_DB_ERROR_MARKERS = (
+    "ssl",
+    "eof",
+    "connection reset",
+    "closed unexpectedly",
+    "server closed",
+)
 
 
 def _market_card_queryset(qs):
@@ -70,7 +77,15 @@ def market_card_queryset(qs):
 
 def get_market_for_detail(slug: str):
     """Single market for the detail page without loading TOAST JSON payloads."""
-    return _market_card_queryset(Market.objects.filter(slug=slug)).first()
+    qs = _market_card_queryset(Market.objects.filter(slug=slug))
+    try:
+        return qs.first()
+    except OperationalError as exc:
+        message = str(exc).lower()
+        if not any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+            raise
+        close_old_connections()
+        return qs.first()
 
 
 def _exclude_disabled_sources(markets):
