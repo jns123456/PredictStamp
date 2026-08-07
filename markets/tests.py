@@ -493,6 +493,32 @@ class MarketListPaginationTransientDbTests(SimpleTestCase):
         self.assertEqual(mock_list.call_count, 2)
 
 
+class LandingTapeTransientDbTests(SimpleTestCase):
+    @patch("markets.selectors.list")
+    @patch("markets.selectors._public_market_filter")
+    @patch("markets.selectors._market_card_queryset")
+    def test_get_landing_tape_markets_retries_connection_timeout(
+        self, mock_card_qs, mock_public_filter, mock_list
+    ):
+        from unittest.mock import MagicMock
+
+        from django.db import OperationalError
+
+        market = MagicMock()
+        qs = MagicMock()
+        mock_card_qs.return_value = qs
+        mock_public_filter.return_value = qs
+        mock_list.side_effect = [
+            OperationalError("connection timeout expired"),
+            [market],
+        ]
+
+        results = get_landing_tape_markets(limit=10)
+
+        self.assertEqual(results, [market])
+        self.assertEqual(mock_list.call_count, 2)
+
+
 class LandingTapeSelectorTests(TestCase):
     def _forecastable_market(self, *, slug, title, image_url=""):
         return Market.objects.create(

@@ -63,7 +63,28 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "connection reset",
     "closed unexpectedly",
     "server closed",
+    "timeout",
 )
+
+
+def _is_transient_db_operational_error(exc: OperationalError) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+
+
+def _materialize_queryset_slice(qs, *, stop: int | None = None):
+    """Evaluate a queryset slice, retrying once after stale Postgres connections."""
+    try:
+        if stop is None:
+            return list(qs)
+        return list(qs[:stop])
+    except OperationalError as exc:
+        if not _is_transient_db_operational_error(exc):
+            raise
+        close_old_connections()
+        if stop is None:
+            return list(qs)
+        return list(qs[:stop])
 
 
 def _market_card_queryset(qs):
@@ -81,8 +102,7 @@ def get_market_for_detail(slug: str):
     try:
         return qs.first()
     except OperationalError as exc:
-        message = str(exc).lower()
-        if not any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+        if not _is_transient_db_operational_error(exc):
             raise
         close_old_connections()
         return qs.first()
@@ -658,7 +678,7 @@ def get_landing_tape_markets(*, limit=LANDING_TAPE_DEFAULT_LIMIT, pool_size=LAND
             ).exclude(card_image_url="")
         )
     ).order_by("-volume_total", "-created_at")
-    pool = list(qs[:pool_size])
+    pool = _materialize_queryset_slice(qs, stop=pool_size)
     if not pool:
         return []
     if len(pool) <= limit:
