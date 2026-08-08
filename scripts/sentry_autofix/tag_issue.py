@@ -25,27 +25,21 @@ def resolve_issue_id(
     issue_ref: str,
 ) -> tuple[str, str | None]:
     """Return (numeric_issue_id, project_slug)."""
-    if issue_ref.isdigit():
-        detail = requests.get(
-            f"{api}/issues/{issue_ref}/",
-            headers=headers,
-            timeout=30,
-        )
-        if detail.status_code != 200:
-            return issue_ref, None
-        project = detail.json().get("project", {})
-        return issue_ref, project.get("slug")
-
+    query = issue_ref if not issue_ref.isdigit() else f"id:{issue_ref}"
     search = requests.get(
         f"{api}/organizations/{org}/issues/",
         headers=headers,
-        params={"query": issue_ref, "limit": 1},
+        params={"query": query, "limit": 1},
         timeout=30,
     )
-    if search.status_code != 200 or not search.json():
-        return "", None
-    row = search.json()[0]
-    return str(row["id"]), row.get("project", {}).get("slug")
+    if search.status_code == 200 and search.json():
+        row = search.json()[0]
+        return str(row["id"]), row.get("project", {}).get("slug")
+
+    if issue_ref.isdigit():
+        return issue_ref, None
+
+    return "", None
 
 
 def main() -> int:
@@ -95,7 +89,7 @@ def main() -> int:
     )
     if should_resolve:
         resolve_resp = requests.put(
-            f"{api}/issues/{issue_id}/",
+            f"{api}/organizations/{args.org}/issues/{issue_id}/",
             headers=headers,
             json={"status": "resolved"},
             timeout=30,
