@@ -15,6 +15,17 @@ def issue_activity_text(
     project: str = "",
 ) -> str:
     """Return concatenated issue comments (preferred) or legacy notes text."""
+    if org:
+        comments = requests.get(
+            f"{api}/organizations/{org}/issues/{issue_id}/comments/",
+            headers=headers,
+            timeout=30,
+        )
+        if comments.status_code == 200:
+            return "\n".join(
+                row.get("data", {}).get("text", "") for row in comments.json()
+            )
+
     comments = requests.get(
         f"{api}/issues/{issue_id}/comments/",
         headers=headers,
@@ -50,6 +61,16 @@ def add_issue_comment(
     project: str = "",
 ) -> tuple[bool, int]:
     """Post an issue comment; fall back to legacy notes endpoint."""
+    if org:
+        org_comment_resp = requests.post(
+            f"{api}/organizations/{org}/issues/{issue_id}/comments/",
+            headers=headers,
+            json={"text": text},
+            timeout=30,
+        )
+        if org_comment_resp.status_code in (200, 201):
+            return True, org_comment_resp.status_code
+
     comment_resp = requests.post(
         f"{api}/issues/{issue_id}/comments/",
         headers=headers,

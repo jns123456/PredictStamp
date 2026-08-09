@@ -27,14 +27,15 @@ def resolve_issue_id(
     """Return (numeric_issue_id, project_slug)."""
     if issue_ref.isdigit():
         detail = requests.get(
-            f"{api}/issues/{issue_ref}/",
+            f"{api}/organizations/{org}/issues/{issue_ref}/",
             headers=headers,
             timeout=30,
         )
         if detail.status_code != 200:
             return issue_ref, None
         project = detail.json().get("project", {})
-        return issue_ref, project.get("slug")
+        slug = project.get("slug") if isinstance(project, dict) else None
+        return issue_ref, slug
 
     search = requests.get(
         f"{api}/organizations/{org}/issues/",
@@ -95,7 +96,7 @@ def main() -> int:
     )
     if should_resolve:
         resolve_resp = requests.put(
-            f"{api}/issues/{issue_id}/",
+            f"{api}/organizations/{args.org}/issues/{issue_id}/",
             headers=headers,
             json={"status": "resolved"},
             timeout=30,
