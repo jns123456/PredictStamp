@@ -232,6 +232,7 @@ def _is_celery_beat_redis_scheduling_noise(event, hint) -> bool:
         "unexpected_eof",
         "unexpected eof",
         "connection reset",
+        "connection closed",
         "error 8 connecting",
         "channel disconnected",
         "eof occurred in violation of protocol",
@@ -244,6 +245,13 @@ def _is_celery_beat_redis_scheduling_noise(event, hint) -> bool:
         "SSLEOFError",
         "RecoverableConnectionError",
     }
+
+    if event.get("logger") == "celery.beat":
+        beat_message = _event_message(event).lower()
+        if "couldn't apply scheduled task" in beat_message and any(
+            marker in beat_message for marker in redis_markers
+        ):
+            return True
 
     exc_info = hint.get("exc_info")
     if exc_info and exc_info[0] is not None:

@@ -388,6 +388,26 @@ class SentryBeforeSendTests(SimpleTestCase):
         hint = {"exc_info": (SchedulingError, SchedulingError(message), None)}
         self.assertIsNone(_before_send(event, hint))
 
+    def test_drops_celery_beat_logentry_redis_scheduling_error(self):
+        message = (
+            "Message Error: Couldn't apply scheduled task prune-market-raw-fifo: "
+            "Error 8 connecting to ec2-100-58-75-76.compute-1.amazonaws.com:16990. "
+            "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol."
+        )
+        event = {
+            "logger": "celery.beat",
+            "logentry": {"message": message},
+            "exception": {
+                "values": [
+                    {
+                        "type": "ConnectionError",
+                        "value": "Connection closed by server.",
+                    },
+                ],
+            },
+        }
+        self.assertIsNone(_before_send(event, {}))
+
     def test_keeps_celery_beat_scheduling_errors_without_redis_markers(self):
         class SchedulingError(Exception):
             pass
