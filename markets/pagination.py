@@ -17,7 +17,9 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "eof",
     "connection reset",
     "closed unexpectedly",
+    "server closed",
     "timeout",
+    "starting up",
 )
 
 

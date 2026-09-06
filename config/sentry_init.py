@@ -276,6 +276,48 @@ def _is_celery_beat_redis_scheduling_noise(event, hint) -> bool:
     return has_scheduling_error and has_redis_transient
 
 
+_TRANSIENT_POSTGRES_CONNECTION_MARKERS = (
+    "ssl",
+    "eof",
+    "connection reset",
+    "closed unexpectedly",
+    "server closed",
+    "timeout",
+    "starting up",
+)
+
+
+def _is_transient_web_postgres_connection_noise(event, hint) -> bool:
+    """Drop transient PG connection errors on market reads after retry is exhausted."""
+    transaction = event.get("transaction") or ""
+    if not transaction.startswith("/markets/"):
+        return False
+
+    if not (
+        _stack_includes_filename(event, "selectors.py")
+        or _stack_includes_filename(event, "pagination.py")
+    ):
+        return False
+
+    def _matches_transient_operational_error(value: str) -> bool:
+        lowered = value.lower()
+        return any(marker in lowered for marker in _TRANSIENT_POSTGRES_CONNECTION_MARKERS)
+
+    exc_info = hint.get("exc_info")
+    if exc_info and exc_info[0] is not None:
+        exc_name = getattr(exc_info[0], "__name__", "")
+        if exc_name == "OperationalError" and exc_info[1] is not None:
+            if _matches_transient_operational_error(str(exc_info[1])):
+                return True
+
+    for entry in event.get("exception", {}).get("values", []):
+        if entry.get("type") != "OperationalError":
+            continue
+        if _matches_transient_operational_error(entry.get("value") or ""):
+            return True
+    return False
+
+
 def _is_handled_stale_refresh_postgres_oom(event, hint) -> bool:
     """Drop handled PostgreSQL OOM during stale market refresh batch/task."""
     logger_name = event.get("logger")
@@ -339,6 +381,9 @@ def _before_send(event, hint):
         return None
 
     if _is_celery_beat_redis_scheduling_noise(event, hint):
+        return None
+
+    if _is_transient_web_postgres_connection_noise(event, hint):
         return None
 
     return event

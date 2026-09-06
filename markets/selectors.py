@@ -64,6 +64,7 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "closed unexpectedly",
     "server closed",
     "timeout",
+    "starting up",
 )
 
 

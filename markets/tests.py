@@ -473,6 +473,27 @@ class MarketDetailTransientDbTests(SimpleTestCase):
         self.assertEqual(qs.first.call_count, 2)
 
     @patch("markets.selectors._market_card_queryset")
+    def test_get_market_for_detail_retries_database_starting_up(self, mock_card_qs):
+        from unittest.mock import MagicMock
+
+        from django.db import OperationalError
+
+        from markets.selectors import get_market_for_detail
+
+        market = MagicMock()
+        qs = MagicMock()
+        qs.first.side_effect = [
+            OperationalError(
+                'connection failed: connection to server at "18.209.250.183", port 5432 '
+                "failed: FATAL:  the database system is starting up"
+            ),
+            market,
+        ]
+        mock_card_qs.return_value = qs
+        self.assertIs(get_market_for_detail("test-slug"), market)
+        self.assertEqual(qs.first.call_count, 2)
+
+    @patch("markets.selectors._market_card_queryset")
     def test_get_market_for_detail_retries_connection_timeout(self, mock_card_qs):
         from unittest.mock import MagicMock
 

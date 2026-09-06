@@ -309,6 +309,78 @@ class SentryBeforeSendTests(SimpleTestCase):
         }
         self.assertIsNone(_before_send(event, hint))
 
+    def test_drops_transient_web_postgres_connection_on_market_detail(self):
+        event = {
+            "transaction": "/markets/{slug}/",
+            "exception": {
+                "values": [
+                    {
+                        "type": "OperationalError",
+                        "value": (
+                            'connection failed: connection to server at "18.209.250.183", '
+                            "port 5432 failed: FATAL:  the database system is starting up"
+                        ),
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "filename": "/app/markets/selectors.py",
+                                    "function": "get_market_for_detail",
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+        self.assertIsNone(_before_send(event, {}))
+
+    def test_drops_transient_web_postgres_connection_on_market_list(self):
+        event = {
+            "transaction": "/markets/all/",
+            "exception": {
+                "values": [
+                    {
+                        "type": "OperationalError",
+                        "value": (
+                            'connection failed: connection to server at "18.209.250.183", '
+                            "port 5432 failed: server closed the connection unexpectedly"
+                        ),
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "filename": "/app/markets/pagination.py",
+                                    "function": "_materialize_window",
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+        self.assertIsNone(_before_send(event, {}))
+
+    def test_keeps_transient_postgres_errors_outside_market_routes(self):
+        event = {
+            "transaction": "/accounts/login/",
+            "exception": {
+                "values": [
+                    {
+                        "type": "OperationalError",
+                        "value": "server closed the connection unexpectedly",
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "filename": "/app/markets/selectors.py",
+                                    "function": "get_landing_tape_markets",
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+        self.assertIs(event, _before_send(event, {}))
+
     def test_drops_embedded_sync_transient_db_errors(self):
         event = {
             "logger": "integrations.market_sync_scheduler",
