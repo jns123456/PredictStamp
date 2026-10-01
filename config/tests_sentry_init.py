@@ -480,6 +480,17 @@ class SentryBeforeSendTests(SimpleTestCase):
         }
         self.assertIsNone(_before_send(event, {}))
 
+    def test_drops_celery_beat_connection_retry_log_noise(self):
+        message = (
+            "beat: Connection error: Error 104 connecting to ec2-100-27-122-59.compute-1.amazonaws.com:13400. "
+            "Connection reset by peer.. Trying again in 6.0 seconds..."
+        )
+        event = {
+            "logger": "celery.beat",
+            "logentry": {"message": message},
+        }
+        self.assertIsNone(_before_send(event, {}))
+
     def test_keeps_celery_beat_scheduling_errors_without_redis_markers(self):
         class SchedulingError(Exception):
             pass

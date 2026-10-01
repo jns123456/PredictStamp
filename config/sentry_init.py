@@ -252,6 +252,9 @@ def _is_celery_beat_redis_scheduling_noise(event, hint) -> bool:
             marker in beat_message for marker in redis_markers
         ):
             return True
+        if "trying again" in beat_message and any(marker in beat_message for marker in redis_markers):
+            if "connection error" in beat_message or "connecting to" in beat_message:
+                return True
 
     exc_info = hint.get("exc_info")
     if exc_info and exc_info[0] is not None:
