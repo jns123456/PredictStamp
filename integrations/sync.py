@@ -24,7 +24,29 @@ from markets.models import Market
 
 logger = logging.getLogger(__name__)
 
-_TRANSIENT_DB_ERROR_MARKERS = ("ssl", "eof", "connection reset", "closed unexpectedly")
+_TRANSIENT_DB_ERROR_MARKERS = (
+    "ssl",
+    "eof",
+    "connection reset",
+    "closed unexpectedly",
+    "already in progress",
+)
+
+
+def _is_transient_operational_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+
+
+def _load_market_for_refresh_resilient(market_id: int):
+    """Load a market for refresh, retrying once after transient PostgreSQL connection errors."""
+    try:
+        return load_market_for_refresh(market_id)
+    except OperationalError as exc:
+        if is_postgres_out_of_memory(exc) or not _is_transient_operational_error(exc):
+            raise
+        close_old_connections()
+        return load_market_for_refresh(market_id)
 
 
 def _is_stale_connection_transaction_state(exc: BaseException) -> bool:
@@ -38,7 +60,7 @@ def _materialize_queryset(queryset):
         return list(queryset)
     except OperationalError as exc:
         message = str(exc).lower()
-        if not any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+        if not _is_transient_operational_error(exc):
             raise
         close_old_connections()
         return list(queryset)
@@ -227,7 +249,7 @@ def refresh_stale_open_markets(*, batch_size=None, stale_minutes=None) -> dict:
 
     for market_id in candidate_ids:
         try:
-            market = load_market_for_refresh(market_id)
+            market = _load_market_for_refresh_resilient(market_id)
         except OperationalError as exc:
             if is_postgres_out_of_memory(exc):
                 logger.warning(

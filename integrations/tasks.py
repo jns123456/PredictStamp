@@ -90,10 +90,10 @@ def refresh_market_task(self, market_id):
         is_postgres_out_of_memory,
         load_market_for_refresh,
     )
-    from integrations.sync import refresh_market
+    from integrations.sync import _load_market_for_refresh_resilient, refresh_market
 
     try:
-        market = load_market_for_refresh(market_id)
+        market = _load_market_for_refresh_resilient(market_id)
     except OperationalError as exc:
         if is_postgres_out_of_memory(exc):
             logger.warning(

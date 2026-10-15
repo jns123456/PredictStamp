@@ -9,6 +9,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from integrations.sync import (
+    _load_market_for_refresh_resilient,
     _materialize_queryset,
     refresh_market,
     refresh_stale_open_markets,
@@ -126,6 +127,16 @@ class MaterializeQuerysetTests(SimpleTestCase):
         with self.assertRaises(OperationalError):
             _materialize_queryset(MagicMock())
 
+    @patch("integrations.sync.list")
+    def test_materialize_queryset_retries_psycopg_command_in_progress(self, mock_list):
+        mock_list.side_effect = [
+            OperationalError("sending query failed: another command is already in progress"),
+            [1],
+        ]
+        result = _materialize_queryset(MagicMock())
+        self.assertEqual(result, [1])
+        self.assertEqual(mock_list.call_count, 2)
+
 
 class RefreshStaleOpenMarketsTests(TestCase):
     @patch("integrations.sync.refresh_market")
@@ -229,6 +240,17 @@ class RefreshStaleOpenMarketsTests(TestCase):
         self.assertTrue(
             any("PostgreSQL out of memory on candidate fetch" in msg for msg in logs.output)
         )
+
+    @patch("integrations.sync.load_market_for_refresh")
+    def test_load_market_for_refresh_resilient_retries_transient_error(self, mock_load):
+        market = MagicMock()
+        mock_load.side_effect = [
+            OperationalError("sending query failed: another command is already in progress"),
+            market,
+        ]
+        loaded = _load_market_for_refresh_resilient(42)
+        self.assertEqual(loaded, market)
+        self.assertEqual(mock_load.call_count, 2)
 
     @patch("integrations.sync.refresh_market")
     @patch("integrations.sync.load_market_for_refresh")
