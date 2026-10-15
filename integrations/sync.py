@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 
 from django.conf import settings
-from django.db import OperationalError, close_old_connections
+from django.db import OperationalError, ProgrammingError, close_old_connections
 from django.db.models import Q
 from django.utils import timezone
 
@@ -25,6 +25,11 @@ from markets.models import Market
 logger = logging.getLogger(__name__)
 
 _TRANSIENT_DB_ERROR_MARKERS = ("ssl", "eof", "connection reset", "closed unexpectedly")
+
+
+def _is_stale_connection_transaction_state(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "autocommit" in message and "transaction" in message
 
 
 def _materialize_queryset(queryset):
@@ -182,6 +187,7 @@ def refresh_stale_open_markets(*, batch_size=None, stale_minutes=None) -> dict:
     """
     batch_size = batch_size or settings.MARKET_SYNC_STALE_BATCH_SIZE
     stale_minutes = stale_minutes or settings.MARKET_SYNC_STALE_MINUTES
+    close_old_connections()
     now = timezone.now()
     cutoff = now - timezone.timedelta(minutes=stale_minutes)
 
@@ -248,9 +254,23 @@ def refresh_stale_open_markets(*, batch_size=None, stale_minutes=None) -> dict:
                 continue
             failures += 1
             logger.exception("Failed to refresh stale market %s", market.external_id)
+        except ProgrammingError as exc:
+            if _is_stale_connection_transaction_state(exc):
+                close_old_connections()
+                failures += 1
+                logger.warning(
+                    "Stale market refresh reset DB connection after market %s (%s)",
+                    market.external_id,
+                    exc,
+                )
+            else:
+                failures += 1
+                logger.exception("Failed to refresh stale market %s", market.external_id)
         except Exception:
             failures += 1
             logger.exception("Failed to refresh stale market %s", market.external_id)
+        finally:
+            close_old_connections()
 
     logger.info(
         "Stale market refresh complete: %s refreshed, %s failed (batch=%s)",

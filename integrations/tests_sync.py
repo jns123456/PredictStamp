@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from django.db import connection
-from django.db import OperationalError
+from django.db import OperationalError, ProgrammingError
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -259,3 +259,29 @@ class RefreshStaleOpenMarketsTests(TestCase):
         self.assertTrue(
             any("PostgreSQL out of memory on load" in msg for msg in logs.output)
         )
+
+    @patch("integrations.sync.refresh_market")
+    @patch("integrations.sync.load_market_for_refresh")
+    def test_refresh_stale_open_markets_resets_stale_db_transaction_state(
+        self, mock_load, mock_refresh
+    ):
+        stale_time = timezone.now() - timedelta(hours=2)
+        market = Market.objects.create(
+            external_id="stale-tx-poly",
+            title="Stale tx market",
+            slug="stale-tx-market",
+            source=Market.Source.POLYMARKET,
+            status=Market.Status.OPEN,
+            polymarket_synced_at=stale_time,
+        )
+        mock_load.return_value = market
+        mock_refresh.side_effect = ProgrammingError(
+            "can't change 'autocommit' now: connection in transaction status ACTIVE"
+        )
+
+        with self.assertLogs("integrations.sync", level="WARNING") as logs:
+            result = refresh_stale_open_markets(batch_size=10, stale_minutes=30)
+
+        self.assertEqual(result["refreshed"], 0)
+        self.assertEqual(result["failures"], 1)
+        self.assertTrue(any("reset DB connection" in msg for msg in logs.output))

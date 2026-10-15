@@ -3,7 +3,7 @@
 import logging
 
 import requests
-from django.db import OperationalError, transaction
+from django.db import OperationalError, ProgrammingError, close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
@@ -40,6 +40,12 @@ def _is_transient_polymarket_upstream_error(exc) -> bool:
         and response is not None
         and (response.status_code >= 500 or response.status_code == 422)
     )
+
+
+def _is_stale_connection_transaction_state(exc: BaseException) -> bool:
+    """True when psycopg3 rejects autocommit toggles on a dirty connection."""
+    message = str(exc).lower()
+    return "autocommit" in message and "transaction" in message
 
 
 def _log_polymarket_fetch_failure(exc, message, *args):
@@ -221,39 +227,49 @@ def import_market_from_normalized(data, *, raw_market=None, raw_event=None):
     # Prediction resolution runs outside the import transaction so transient
     # PostgreSQL pressure (e.g. Essential-0 OOM) cannot roll back the market row.
     resolve_after_import = False
+    market = None
+    created = False
 
-    with transaction.atomic():
-        market, created = Market.objects.update_or_create(
-            external_id=external_id,
-            defaults=defaults,
-        )
+    for attempt in range(2):
+        try:
+            with transaction.atomic():
+                market, created = Market.objects.update_or_create(
+                    external_id=external_id,
+                    defaults=defaults,
+                )
 
-        if not market.slug:
-            base = slugify(market.title)[:500] or "market"
-            slug = base
-            counter = 1
-            while Market.objects.filter(slug=slug).exclude(pk=market.pk).exists():
-                slug = f"{base}-{counter}"
-                counter += 1
-            market.slug = slug
-            market.save(update_fields=["slug", "updated_at"])
+                if not market.slug:
+                    base = slugify(market.title)[:500] or "market"
+                    slug = base
+                    counter = 1
+                    while Market.objects.filter(slug=slug).exclude(pk=market.pk).exists():
+                        slug = f"{base}-{counter}"
+                        counter += 1
+                    market.slug = slug
+                    market.save(update_fields=["slug", "updated_at"])
 
-        if market.status == Market.Status.RESOLVED:
-            market = backfill_market_resolved_outcome(market, raw_market=raw_market)
-            resolve_after_import = bool(market.resolved_outcome)
-        elif market.status == Market.Status.OPEN:
-            resolve_after_import = True
+                if market.status == Market.Status.RESOLVED:
+                    market = backfill_market_resolved_outcome(market, raw_market=raw_market)
+                    resolve_after_import = bool(market.resolved_outcome)
+                elif market.status == Market.Status.OPEN:
+                    resolve_after_import = True
 
-        from markets.display_metadata import sync_market_display_metadata
+                from markets.display_metadata import sync_market_display_metadata
 
-        sync_market_display_metadata(market, save=True)
+                sync_market_display_metadata(market, save=True)
 
-        # Compact bulky Polymarket JSON as soon as a market is resolved so disk
-        # does not grow unbounded between nightly prune batches.
-        if market.status == Market.Status.RESOLVED:
-            from markets.cleanup_services import maybe_compact_resolved_market_raw
+                # Compact bulky Polymarket JSON as soon as a market is resolved so disk
+                # does not grow unbounded between nightly prune batches.
+                if market.status == Market.Status.RESOLVED:
+                    from markets.cleanup_services import maybe_compact_resolved_market_raw
 
-            maybe_compact_resolved_market_raw(market)
+                    maybe_compact_resolved_market_raw(market)
+            break
+        except ProgrammingError as exc:
+            if attempt == 0 and _is_stale_connection_transaction_state(exc):
+                close_old_connections()
+                continue
+            raise
 
     if resolve_after_import:
         _resolve_imported_market_predictions(market, raw_event=raw_event)

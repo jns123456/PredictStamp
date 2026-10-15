@@ -63,6 +63,9 @@ def sync_all_category_markets_task(self):
 @shared_task(bind=True, ignore_result=True, max_retries=2, default_retry_delay=120)
 def refresh_stale_open_markets_task(self):
     """Periodic refresh of stale open/closed-unresolved Polymarket imports."""
+    from django.db import close_old_connections
+
+    close_old_connections()
     try:
         result = refresh_stale_open_markets()
         invalidate_category_summaries_cache()
