@@ -512,6 +512,21 @@ class MarketDetailTransientDbTests(SimpleTestCase):
         self.assertEqual(qs.first.call_count, 2)
 
 
+class MarketListPaginationPageParamTests(SimpleTestCase):
+    @patch("markets.pagination.list", return_value=[])
+    def test_windowed_pagination_ignores_non_numeric_page(self, _mock_list):
+        from unittest.mock import MagicMock
+
+        from markets.pagination import paginate_queryset_windowed
+
+        page = paginate_queryset_windowed(
+            MagicMock(),
+            page="2 AND EXTRACTVALUE(4166,CONCAT(0x7e,1))-- -",
+            per_page=20,
+        )
+        self.assertEqual(page.number, 1)
+
+
 class MarketListPaginationTransientDbTests(SimpleTestCase):
     @patch("markets.pagination.list")
     def test_windowed_pagination_retries_transient_ssl_eof(self, mock_list):

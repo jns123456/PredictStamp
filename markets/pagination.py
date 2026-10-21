@@ -118,6 +118,15 @@ class WindowedPage:
         return self.start_index + len(self.object_list) - 1
 
 
+def _parse_page_number(page, default: int = 1) -> int:
+    """Return a positive page index; invalid query values default to ``default``."""
+    try:
+        page_number = int(page)
+    except (TypeError, ValueError):
+        return default
+    return max(1, page_number)
+
+
 def _materialize_window(qs, *, offset: int, limit: int):
     """Evaluate a queryset slice, retrying once after stale PostgreSQL SSL drops."""
     try:
@@ -132,7 +141,7 @@ def _materialize_window(qs, *, offset: int, limit: int):
 
 def paginate_queryset_windowed(qs, *, page, per_page: int):
     """Return a Page without issuing a COUNT query."""
-    page_number = max(1, int(page or 1))
+    page_number = _parse_page_number(page or 1)
     offset = (page_number - 1) * per_page
     window = _materialize_window(qs, offset=offset, limit=per_page + 1)
     has_next = len(window) > per_page
@@ -179,11 +188,9 @@ class MarketApiPagination(PageNumberPagination):
         if not page_size:
             return None
 
-        page_number = request.query_params.get(self.page_query_param, 1)
-        try:
-            page_number = int(page_number)
-        except (TypeError, ValueError):
-            page_number = 1
+        page_number = _parse_page_number(
+            request.query_params.get(self.page_query_param, 1)
+        )
 
         self.windowed_page = paginate_queryset_windowed(
             queryset,
