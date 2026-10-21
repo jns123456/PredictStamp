@@ -284,6 +284,38 @@ class SentryBeforeSendTests(SimpleTestCase):
         hint = {"exc_info": (ReadTimeout, ReadTimeout("read timed out"), None)}
         self.assertIsNone(_before_send(event, hint))
 
+    def test_drops_polymarket_category_sync_404_errors(self):
+        class HTTPError(Exception):
+            pass
+
+        HTTPError.__module__ = "requests.exceptions"
+
+        class FakeResponse:
+            status_code = 404
+
+        event = {
+            "logger": "integrations.services",
+            "logentry": {
+                "message": "Polymarket category sync failed for %s",
+                "formatted": "Polymarket category sync failed for world",
+            },
+            "exception": {
+                "values": [
+                    {
+                        "type": "HTTPError",
+                        "value": (
+                            "404 Client Error: Not Found for url: "
+                            "https://gamma-api.polymarket.com/events?tag_slug=geopolitics"
+                        ),
+                    },
+                ],
+            },
+        }
+        exc = HTTPError("404 Client Error")
+        exc.response = FakeResponse()
+        hint = {"exc_info": (HTTPError, exc, None)}
+        self.assertIsNone(_before_send(event, hint))
+
     def test_drops_transient_polymarket_chart_timeouts(self):
         class ReadTimeout(Exception):
             pass

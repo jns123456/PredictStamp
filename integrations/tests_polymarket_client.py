@@ -102,7 +102,21 @@ class PolymarketClientRetryTests(SimpleTestCase):
 
         self.assertEqual(events, [])
         self.assertEqual(self.client.session.get.call_count, 1)
-        self.assertTrue(any("pagination ended (HTTP 422)" in msg for msg in logs.output))
+        self.assertTrue(any("events unavailable (HTTP 422)" in msg for msg in logs.output))
+
+    @patch("integrations.polymarket.client.time.sleep")
+    def test_fetch_events_returns_empty_on_404_unknown_tag(self, mock_sleep):
+        error_response = MagicMock()
+        error_response.status_code = 404
+
+        self.client.session.get = MagicMock(return_value=error_response)
+
+        with self.assertLogs("integrations.polymarket.client", level="WARNING") as logs:
+            events = self.client.fetch_events(tag_slug="geopolitics", limit=100, offset=0)
+
+        self.assertEqual(events, [])
+        self.assertEqual(self.client.session.get.call_count, 1)
+        self.assertTrue(any("events unavailable (HTTP 404)" in msg for msg in logs.output))
 
     @patch("integrations.polymarket.client.time.sleep")
     def test_fetch_events_paginated_stops_on_422(self, mock_sleep):
