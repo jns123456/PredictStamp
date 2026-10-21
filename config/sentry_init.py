@@ -109,7 +109,8 @@ def _is_transient_polymarket_upstream_exception(event, hint) -> bool:
             exc = exc_info[1]
             response = getattr(exc, "response", None)
             if response is not None and (
-                response.status_code >= 500 or response.status_code == 422
+                response.status_code >= 500
+                or response.status_code in (403, 404, 422)
             ):
                 return True
 
@@ -119,6 +120,10 @@ def _is_transient_polymarket_upstream_exception(event, hint) -> bool:
             return True
         if entry_type == "HTTPError":
             value = entry.get("value") or ""
+            if "403" in value and "Forbidden" in value:
+                return True
+            if "404" in value and "Not Found" in value:
+                return True
             if "422" in value and "Unprocessable Entity" in value:
                 return True
             if "Server Error" in value and re.search(r"\b5\d{2}\b", value):

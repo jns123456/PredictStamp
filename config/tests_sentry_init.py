@@ -164,6 +164,45 @@ class SentryBeforeSendTests(SimpleTestCase):
         hint = {"exc_info": (ReadTimeout, ReadTimeout("read timed out"), None)}
         self.assertIsNone(_before_send(event, hint))
 
+    def test_drops_transient_polymarket_fetch_403_errors(self):
+        class HTTPError(Exception):
+            pass
+
+        HTTPError.__module__ = "requests.exceptions"
+
+        class FakeResponse:
+            status_code = 403
+
+        event = {
+            "logger": "integrations.services",
+            "logentry": {
+                "message": "Failed to fetch H2H match event itf-sharma4-haddad1-2026-10-21",
+            },
+            "exception": {
+                "values": [
+                    {
+                        "type": "HTTPError",
+                        "value": (
+                            "403 Client Error: Forbidden for url: "
+                            "https://gamma-api.polymarket.com/events/slug/itf-demo"
+                        ),
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "module": "integrations.polymarket.client",
+                                    "function": "fetch_event_by_slug",
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+        exc = HTTPError("403 Client Error")
+        exc.response = FakeResponse()
+        hint = {"exc_info": (HTTPError, exc, None)}
+        self.assertIsNone(_before_send(event, hint))
+
     def test_drops_transient_polymarket_fetch_500_errors(self):
         class HTTPError(Exception):
             pass
