@@ -466,6 +466,26 @@ class PolymarketClient:
     def fetch_market_by_id(self, external_id):
         url = f"{self.base_url}/markets/{external_id}"
         response = self._get_with_retry(url, timeout=30)
+        if response.status_code == 404:
+            logger.warning(
+                "Polymarket market %s not found (HTTP 404)",
+                external_id,
+            )
+            return None
+        if response.status_code >= 500:
+            logger.warning(
+                "Polymarket market %s unavailable (HTTP %s)",
+                external_id,
+                response.status_code,
+            )
+            return None
+        if response.status_code in (422,):
+            logger.warning(
+                "Polymarket market %s unavailable (HTTP %s)",
+                external_id,
+                response.status_code,
+            )
+            return None
         response.raise_for_status()
         raw = response.json()
         return self._enrich_market_with_events(raw)

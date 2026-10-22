@@ -316,6 +316,39 @@ class SentryBeforeSendTests(SimpleTestCase):
         hint = {"exc_info": (HTTPError, exc, None)}
         self.assertIsNone(_before_send(event, hint))
 
+    def test_drops_polymarket_market_fetch_404_without_logger(self):
+        class HTTPError(Exception):
+            pass
+
+        HTTPError.__module__ = "requests.exceptions"
+
+        event = {
+            "exception": {
+                "values": [
+                    {
+                        "type": "HTTPError",
+                        "value": (
+                            "404 Client Error: Not Found for url: "
+                            "https://gamma-api.polymarket.com/markets/1126504"
+                        ),
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "module": "integrations.services",
+                                    "function": "refresh_market_from_polymarket",
+                                },
+                                {
+                                    "module": "integrations.polymarket.client",
+                                    "function": "fetch_market_by_id",
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+        self.assertIsNone(_before_send(event, {}))
+
     def test_drops_transient_polymarket_chart_timeouts(self):
         class ReadTimeout(Exception):
             pass

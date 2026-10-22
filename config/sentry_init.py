@@ -131,6 +131,19 @@ def _is_transient_polymarket_upstream_exception(event, hint) -> bool:
     return False
 
 
+def _is_polymarket_market_fetch_404_noise(event, hint) -> bool:
+    """Drop removed Polymarket markets (404) from fetch_market_by_id refresh paths."""
+    return _is_transient_polymarket_upstream_exception(event, hint) and any(
+        "gamma-api.polymarket.com/markets/" in (entry.get("value") or "")
+        for entry in event.get("exception", {}).get("values", [])
+        if entry.get("type") == "HTTPError"
+    ) and any(
+        frame.get("function") == "fetch_market_by_id"
+        for entry in event.get("exception", {}).get("values", [])
+        for frame in entry.get("stacktrace", {}).get("frames", [])
+    )
+
+
 def _is_transient_polymarket_fetch_noise(event, hint) -> bool:
     """Drop handled Polymarket upstream failures from integrations fetch/sync paths."""
     logger_name = event.get("logger")
@@ -379,7 +392,11 @@ def _before_send(event, hint):
     if _is_transient_polymarket_fetch_noise(event, hint):
         return None
 
+    if _is_polymarket_market_fetch_404_noise(event, hint):
+        return None
+
     if _is_embedded_sync_transient_db_noise(event, hint):
+        return None
         return None
 
     if _is_transient_postgres_oom(event, hint):

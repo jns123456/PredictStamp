@@ -307,6 +307,9 @@ def refresh_market_from_polymarket(market):
         _log_polymarket_fetch_failure(exc, "Failed to fetch Polymarket market %s", market.external_id)
         return market
 
+    if not raw_market:
+        return market
+
     raw_event = _fetch_event_for_market(client, raw_market)
     if raw_event and not raw_market.get("volumeNum") and not raw_market.get("volume"):
         market_id = str(raw_market.get("id") or market.external_id)
@@ -539,6 +542,8 @@ def sync_top_volume_polymarket_markets(*, min_volume_share=None, max_markets=Non
 def sync_market_by_external_id(external_id):
     client = PolymarketClient()
     raw = client.fetch_market_by_id(external_id)
+    if not raw:
+        return None, False
     normalized = normalize_polymarket_record(raw)
     raw_event = _fetch_event_for_market(client, raw)
     return import_market_from_normalized(
