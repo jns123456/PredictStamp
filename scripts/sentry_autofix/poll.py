@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -62,6 +63,14 @@ def main() -> int:
         activity = issue_activity_text(
             api, headers, issue_id, args.org, project_slug
         )
+        if not activity and int(row.get("numComments") or 0) > 0:
+            for attempt in range(3):
+                time.sleep(0.5 * (attempt + 1))
+                activity = issue_activity_text(
+                    api, headers, issue_id, args.org, project_slug
+                )
+                if activity:
+                    break
         if already_handled(activity):
             continue
 
