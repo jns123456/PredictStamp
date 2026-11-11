@@ -27,7 +27,7 @@ def resolve_issue_id(
     """Return (numeric_issue_id, project_slug)."""
     if issue_ref.isdigit():
         detail = requests.get(
-            f"{api}/issues/{issue_ref}/",
+            f"{api}/organizations/{org}/issues/{issue_ref}/",
             headers=headers,
             timeout=30,
         )
